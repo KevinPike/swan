@@ -6,8 +6,13 @@ import (
 	"io/ioutil"
 	"os"
 	"os/exec"
+	"os/signal"
 	"sort"
 	"strings"
+	"sync"
+	"syscall"
+
+	"github.com/mitchellh/iochan"
 )
 
 // Run runs swan migrations.
@@ -67,14 +72,38 @@ func Run(filename, dir string) error {
 		return nil
 	}
 
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Kill, os.Interrupt)
+
 	// Execute each migration
+	var quit bool
 	for ; i < len(migrations); i++ {
+		quit = false
+		outCh := make(chan string, 1)
+		doneCh := make(chan struct{}, 1)
+		go func() {
+			for line := range outCh {
+				fmt.Println(line)
+			}
+			close(doneCh)
+		}()
+
 		migration := "migrations/" + migrations[i]
-		if err := exec.Command(migration).Run(); err != nil {
-			fmt.Println("error: ", migration, err)
+		outCh <- "==> executing " + migration
+		cmd := exec.Command(migration)
+
+		if err := execute(cmd, outCh, sigCh); err != nil {
+			outCh <- "==> " + err.Error()
+			quit = true
+		}
+
+		// Signal that there are no more lines to print
+		close(outCh)
+		// Wait for lines to finish printing
+		<-doneCh
+		if quit {
 			break
 		}
-		fmt.Println("executed", migration)
 	}
 
 	// if i is 0, we haven't run a migration before and we failed to run the first
@@ -100,6 +129,78 @@ func Run(filename, dir string) error {
 	if _, err := f.WriteString(lastMigration); err != nil {
 		fmt.Println("unable to write last migration", lastMigration, "to", filename)
 		return err
+	}
+	return nil
+}
+
+func execute(cmd *exec.Cmd, outCh chan<- string, sigCh <-chan os.Signal) error {
+	outPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("unable to read stdout from command: %s", err)
+	}
+	errPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("unable to read stderr from command: %s", err)
+	}
+
+	// Create the channels we'll use for data
+	exitCh := make(chan int, 1)
+	doneCh := make(chan interface{}, 1)
+	stdoutCh := iochan.DelimReader(outPipe, '\n')
+	stderrCh := iochan.DelimReader(errPipe, '\n')
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("unable to start command: %s", err)
+	}
+
+	go func() {
+		select {
+		case <-doneCh:
+			return
+		case sig := <-sigCh:
+			cmd.Process.Signal(sig)
+		}
+	}()
+
+	// Start the goroutine to watch for the exit
+	go func() {
+		exitStatus := 0
+
+		err := cmd.Wait()
+		doneCh <- struct{}{}
+
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitStatus = 1
+
+			// There is no process-independent way to get the REAL
+			// exit status so we just try to go deeper.
+			if status, ok := exitErr.Sys().(syscall.WaitStatus); ok {
+				exitStatus = status.ExitStatus()
+			}
+		}
+
+		exitCh <- exitStatus
+	}()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	streamFunc := func(ch <-chan string) {
+		defer wg.Done()
+		for data := range ch {
+			if data != "" {
+				outCh <- data
+			}
+		}
+	}
+
+	go streamFunc(stdoutCh)
+	go streamFunc(stderrCh)
+
+	exitStatus := <-exitCh
+	wg.Wait()
+
+	if exitStatus != 0 {
+		return fmt.Errorf("non-zero exit code: %d", exitStatus)
 	}
 	return nil
 }
