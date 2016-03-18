@@ -104,6 +104,7 @@ func Run(filename, dir string) error {
 		if quit {
 			break
 		}
+		fmt.Println("==> OK\t" + migration)
 	}
 
 	// if i is 0, we haven't run a migration before and we failed to run the first
