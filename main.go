@@ -7,6 +7,11 @@ import (
 	"github.com/codegangsta/cli"
 )
 
+const (
+	defaultDir = "migrations"
+	lastFile   = ".swan"
+)
+
 func main() {
 	app := cli.NewApp()
 	app.Name = "swan"
@@ -20,12 +25,12 @@ func main() {
 			Flags: []cli.Flag{
 				cli.StringFlag{
 					Name:  "dir",
-					Value: "./migrations",
+					Value: defaultDir,
 					Usage: "migration directory",
 				},
 				cli.StringFlag{
 					Name:  "last",
-					Value: ".swan",
+					Value: lastFile,
 					Usage: "last migration file",
 				},
 			},
@@ -45,7 +50,7 @@ func main() {
 			Flags: []cli.Flag{
 				cli.StringFlag{
 					Name:  "dir",
-					Value: "./migrations",
+					Value: defaultDir,
 					Usage: "migration directory",
 				},
 			},
