@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -88,7 +89,7 @@ func Run(filename, dir string) error {
 			close(doneCh)
 		}()
 
-		migration := "migrations/" + migrations[i]
+		migration := filepath.Join(dir, migrations[i])
 		outCh <- "==> executing " + migration
 		cmd := exec.Command(migration)
 
