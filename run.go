@@ -84,17 +84,17 @@ func Run(filename, dir string) error {
 		doneCh := make(chan struct{}, 1)
 		go func() {
 			for line := range outCh {
-				fmt.Println(line)
+				fmt.Print(line)
 			}
 			close(doneCh)
 		}()
 
 		migration := filepath.Join(dir, migrations[i])
-		outCh <- "==> executing " + migration
+		outCh <- "==> executing \t" + migration + "\n"
 		cmd := exec.Command(migration)
 
 		if err := execute(cmd, outCh, sigCh); err != nil {
-			outCh <- "==> " + err.Error()
+			outCh <- "==> error:" + err.Error() + "\n"
 			quit = true
 		}
 
@@ -105,7 +105,7 @@ func Run(filename, dir string) error {
 		if quit {
 			break
 		}
-		fmt.Println("==> OK\t" + migration)
+		fmt.Println("==> OK\t\t" + migration)
 	}
 
 	// if i is 0, we haven't run a migration before and we failed to run the first
